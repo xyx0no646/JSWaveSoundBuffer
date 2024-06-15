@@ -1,0 +1,3 @@
+if (System.platformName === 'Emscripten') {
+	Scripts.execStorage("JSWaveSoundBuffer/JSWaveSoundBuffer.tjs");
+}

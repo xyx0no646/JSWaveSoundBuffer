@@ -1,0 +1,433 @@
+/**
+ * JavaScriptで実装されたWaveSoundBuffer
+ *
+ * oggやwav,mp3の再生・停止、音量変更など基本的な機能は動作します。
+ * 一方でループチューナーなどいろいろなものが実装されていません。
+ *
+ * 使い方：
+ * (1) dataフォルダに「JSWaveSoundBuffer」と言う名前でこのフォルダを保存する
+ * (2) startup.tjsのスタブなどを書いている場所の下に以下の記述を行う
+ 
+// JavaScript実装のWaveSoundBuffer（機能限定版）
+if (System.platformName === 'Emscripten') {
+	Scripts.execStorage("JSWaveSoundBuffer/JSWaveSoundBuffer.tjs");
+}
+
+ * ※将来の吉里吉里SDL2では不要になるかもしれません。あくまで一次対応です  
+ * 更新履歴
+ * 
+ * 2021/8/29 pause　及びfadein/fadeoutを実装した
+ * 2021/9/20 [ws]タグを使うとフリーズしてしまう問題を修正
+ * 2024/6/15 新バージョンを作成　巨大になってしまったのでgithubにプロジェクトを作る
+ *
+ * author:@xyx0no646
+ * ご自由にお使いください
+ */
+if(typeof(global.KirikiriEmscriptenInterface) == "Object") {
+	KirikiriEmscriptenInterface.evalStorageJS('JSWaveSoundBuffer/JSWaveSoundBuffer.js', '');
+	class WaveSoundBuffer {
+		var jsContext; // JavaScriptのプレイヤーコンテキスト
+		var owner; //actionメソッドのowner
+		var _status;
+		var currentVolume;
+		var targetVolume;
+		var delayTime;
+		var fadeStartTime;
+		var fadeEndTime;
+		var fadeTimer; //フェードイン・フェードアウトタイマ
+		var stopTimer; //再生監視タイマ
+
+		function WaveSoundBuffer(owner){
+			this.owner = owner;
+			this.jsContext = KirikiriEmscriptenInterface.evalJS('new JSWaveSoundBuffer()');
+		};
+
+		/**
+		 *状態が変わったときに通知されます
+		 **/
+		function onStatusChanged( status){};
+
+		/**
+		* ラベルを通過した
+		*
+		*　動作しません
+		*/
+		function onLabel( name){};
+
+		/**
+		* フェードインが終わった
+		*/
+		function onFadeCompleted(){};
+
+		/**
+		* メディアを開く
+		*
+		* @param storage 再生したいストレージを指定します。
+		* @description 指定されたメディアを開きます。
+		* このメソッドは再生を開始しません。
+		*/
+		function open(storage){
+			var path = Storages.getPlacedPath(storage,'.ogg|.wav|.mid|.mp3');
+			var type = "audio/unknown";
+			if(Storages.extractStorageExt(storage) == ".ogg"){
+				type ="audio/ogg";
+			}
+			else if(Storages.extractStorageExt(storage) == ".wav"){
+				type ="audio/wav";
+			}
+			else if(Storages.extractStorageExt(storage) == ".mid"){
+				type ="audio/midi";
+			}
+			else if(Storages.extractStorageExt(storage) == ".mp3"){
+				type ="audio/mp3";
+			}
+			else if(Storages.extractStorageExt(storage) == ".opus"){
+				type ="audio/ogg";
+			}
+			this.jsContext.open(storage,type);
+		};
+
+		/**
+		* メディアを再生する
+		*
+		* @description メディアの再生を開始します。
+		*/
+		function play(){
+			this.jsContext.play();
+			if (this._status == "play") return;
+			this._status = "play";
+			this.onStatusChanged(this._status);
+			this.stopTimer = new Timer(this, "stopWatcher");  // タイマーオブジェクトを作ります
+			this.stopTimer.interval = 100;	// イベントの発生間隔を 100 ミリ秒（＝0.1秒）に設定します
+	   		this.stopTimer.enabled = true;	// タイマーを有効にします
+		};
+
+		/**
+		* メディアを停止する
+		*
+		* @description メディアを停止します。
+		*/
+		function stop( ){
+			this.jsContext.stop();
+			if (this._status == "stop") return;
+			this._status = "stop";
+			this.onStatusChanged(this._status);
+		};
+
+		/**
+		 * Audioタグの停止を監視する
+		 */
+		 function stopWatcher(ev){
+			if(ev.type == "onTimer")
+			{
+				// 再生が終わった
+				if(this.jsContext.audioTag.paused) {
+					this.stopTimer.enabled = false;
+					this.stop();
+				}
+			}
+		 }
+
+		/**
+		* フェードを開始する
+		*
+		*/
+		function fade(to, time, delay=0){
+			this.currentVolume = (real) this.volume;
+			this.targetVolume = (real) to;
+			this.delayTime = (real) delay;
+			this.fadeStartTime = (real) (new Date()).getTime();
+			this.fadeEndTime = (real) (new Date()).getTime() + (real) time;
+			this.fadeTimer = new Timer(this, "fadeAction");  // タイマーオブジェクトを作ります
+			this.fadeTimer.interval = 100;	// イベントの発生間隔を 100 ミリ秒（＝0.1秒）に設定します
+	   		this.fadeTimer.enabled = true;	 // タイマーを有効にします
+		};
+
+		function fadeAction(ev) {
+			if(ev.type == "onTimer")
+			{
+				if (!this.fadeTimer.enabled) return;
+				var time =(new Date()).getTime();
+				if (this.fadeEndTime <= time) {
+					this.fadeTimer.enabled = false;
+					this.volume = this.targetVolume;
+					this.onFadeCompleted();
+					return;
+				}
+				// フェード開始時刻になった
+				else if(this.fadeStartTime + this.delayTime < time) {
+					var t0 = this.fadeEndTime - this.fadeStartTime;
+					var t1 = this.fadeEndTime - time;
+					var t2 = time - this.fadeStartTime;
+					if (t0 < 0 || t1 < 0 || t2 < 0) {
+						return;
+					}
+					this.volume = this.currentVolume * (t1/t0) + this.targetVolume * (t2/t0);
+				}
+				// それ以外はフェード開始時刻になるまで待つ
+			}
+		}
+
+		/**
+		* フェードを停止する
+		*
+		*/
+		function stopFade( ){
+			if(!this.fadeTimer) return;
+			if(!this.fadeTimer.enabled) return;
+	   		this.fadeTimer.enabled = false;	 // タイマーを無効にします
+			this.onFadeCompleted();
+		};
+
+		/**
+		* DirectSound の解放
+		*
+		* 動作しません
+		*/
+		function freeDirectSound( ){};
+
+		/**
+		* 視覚化用データの取得
+		* 
+		* 動作しません
+		*/
+		function getVisBuffer( buffer, numsamples, channel, ahead=0){};
+
+		/**
+		* 再生位置
+		*
+		* @description 再生位置を ms 単位で表します。
+		* 値を設定するとその位置に移動します。
+		*/
+		property position {
+			getter() { return this.jsContext.audioTag.currentTime * 1000; }
+			setter( value ) { this.jsContext.audioTag.currentTime = value/1000;}
+		}
+		/**
+		* 再生位置
+		*
+		* @description 再生位置をサンプル数単位で表します。
+		* 値を設定するとその位置に移動します。
+		*/
+		property samplePosition {
+			getter() { return this.jsContext.audioTag.currentTime * 44100; }
+			setter( value ) { this.jsContext.audioTag.currentTime = value/44100;}
+		}
+		/**
+		* 一時停止状態かどうか
+		*
+		* @description 一時停止状態かどうかを表します。
+		* 値を設定することもできます。真の場合は一時停止状態です。
+		*/
+		property paused {
+			getter() { return this.jsContext.audioTag.paused; }
+			setter( value ) { 
+				if(value) {
+					this.jsContext.pause();
+					if (this._status == "stop") return;
+					this._status = "stop";
+					this.onStatusChanged(this._status);
+				}
+				else{
+					this.jsContext.play();
+					if (this._status == "play") return;
+					this._status = "play";
+					this.onStatusChanged(this._status);
+				}
+			}
+		}
+		/**
+		* メディアの再生時間
+		*
+		* @description メディアの総再生時間を ms 単位で表します。
+		*/
+		property totalTime {
+			getter() { return this.jsContext.audioTag.duration * 1000; }
+		}
+
+		/**
+		* ループ再生を行うかどうか
+		*
+		* @description ループ再生を行うかどうかを表します。
+		* 値を設定することもできます。
+		* 真を指定するとループ再生がされます。
+		* 偽を指定しても、再生しているメディアにループ情報があれば、ループ情報が利用されます。
+		*/
+		property looping {
+			getter() { return this.jsContext.audioTag.loop; }
+			setter( value ) {
+				this.jsContext.audioTag.loop = value;
+			}
+		}
+
+		/**
+		* 音量
+		*
+		* @description 再生する音量を表します。
+		* 値を設定することもできます。
+		* 0 ～ 100000 の数値で指定し、 0 が完全ミュート、100000 が 100% の音量となります。
+		*/
+		property volume {
+			getter() { return this.jsContext.volume; }
+			setter( volume ) {
+				this.jsContext.setVolume(volume);
+			}
+		}
+		/**
+		* 第２音量
+		*
+		* @description 再生する音量を表します。値を設定することができます。
+		* WaveSoundBuffer.volume プロパティと違うのは、このプロパティはWaveSoundBuffer.fade メソッドでも変化しないということです。
+		* 最終的な音量は、volume プロパティとこのプロパティの積で決定されます。
+		* volume プロパティが100000 ( 100% ) で volume2 プロパティも 100000 ( 100% ) ならば 100% × 100% = 100% で100% の音量で再生されます。
+		* volume プロパティが 50000 ( 50% ) で volume2 プロパティが 75000 ( 75% ) ならば50% × 75% = 37.5% で 37.5 % の音量で再生されます。
+		*/
+		property volume2 {
+			getter() { return this.jsContext.volume; }
+			setter( _volume2 ) {
+				this.jsContext.setVolume(volume2);
+			}
+		}
+		/**
+		* ステータス
+		*
+		* @description 現在の状態を表します。
+		* 状態は文字列で表され、以下の値をとります。
+		*
+		* + "unload"   :  メディアが開かれてない
+		* + "play"	 :  メディアは再生中である
+		* + "stop"	 :  メディアは停止中である
+		*
+		*/
+		property status {
+			getter() { return this._status; }
+		}
+		/**
+		* 視覚化用バッファを使用するかどうか
+		*
+		* @description 視覚化用バッファを使用するかどうか表します。
+		* 常時false
+		*/
+		property useVisBuffer {
+			getter() { return false; }
+			setter( value ) {}
+		}
+		/**
+		* チャンネル数
+		*
+		* @description 現在再生中のサウンドのチャンネル数を表します。
+		* モノラルの場合は 1、ステレオの場合は 2 になります。
+		* メディアが開かれていない状態では正常な値を返さない可能性があります。
+		*/
+		property channels {
+			getter() { return 2; }
+		}
+		/**
+		* サンプリング周波数
+		*
+		* @description 現在再生中のサウンドのサンプリング周波数を表します。
+		* 値を設定することもできます。
+		* CD と同じサンプリング周波数の場合は 44100 になります。
+		* メディアが開かれていない状態では正常な値を返さない可能性があります。
+		* 値を設定すると、その周波数で再生します。
+		*/
+		property frequency {
+			getter() { return 44100; }
+			setter( value ) {}
+		}
+		/**
+		* 量子化ビット数
+		*
+		* @description 現在再生中のサウンドの量子化ビット数を表します。
+		* CD と同じ量子化ビット数の場合は 16 になります。
+		* メディアが開かれていない状態では正常な値を返さない可能性があります。
+		*/
+		property bits {
+			getter() { return 16; }
+		}
+		/**
+		* フラグ
+		*
+		* @description フラグを表すオブジェクトを得ることができます。
+		* 動作しません
+		*/
+		property flags {
+			getter() { return new Array(); }
+		}
+		/**
+		* ラベル
+		*
+		* @description ラベルを表すオブジェクトを得ることができます。
+		* 動作しません
+		*/
+		property labels {
+			getter() { return undefined; }
+		}
+		/**
+		* パン
+		*
+		* @description パン (音像位置) を表します。
+		* 動作しません
+		*/
+		property pan {
+			getter() { return 0; }
+			setter( value ) {}
+		}
+		/**
+		* 大域音量
+		*
+		* @description 大域音量 (マスターボリューム)を表します。
+		* 値を設定することもできます。
+		* この音量は、すべての WaveSoundBuffer に影響します。
+		* 0 ～ 100000 の数値で指定し、 0 が完全ミュート、100000 が 100% の音量となります。
+		* デフォルトの値は 100000 です。
+		* このプロパティは WaveSoundBuffer クラス上にしか存在しません (WaveSoundBufferから作られたオブジェクト上にこのプロパティはありません)。
+		* 使用する際は WaveSoundBuffer.globalVolume としてください。
+		*/
+		property globalVolume {
+			getter() {
+				return KirikiriEmscriptenInterface.evalJS('JSWaveSoundBuffer.getGlobalVolume()'); 
+			}
+			setter(value ) {
+				KirikiriEmscriptenInterface.evalJS('JSWaveSoundBuffer.setGlobalVolume')(value);
+			}
+		}
+		/**
+		* フォーカスモード
+		*
+		* @description フォーカスモードを表します。
+		* 値を設定することもできます。
+		* フォーカスモードは、アプリケーションが最小化したときや非アクティブになったときにミュートするモードです。
+		*
+		* + sgfmNeverMuteを指定すると、アプリケーションがどのような状態でもミュートはしません。
+		* + sgfmMuteOnMinimizeを指定すると、アプリケーションが最小化時にミュートします。
+		* + sgfmMuteOnDeactivateを指定すると、アプリケーションが非アクティブ化したときにミュートします。
+		*
+		* 常時sgfmNeverMuteです
+		*/
+		property globalFocusMode {
+			getter() { return "sgfmNeverMute"; }
+			setter( value ) {}
+		}
+		/**
+		* フィルタ配列
+		*
+		* @description インサーションフィルタオブジェクトを保持している配列(Arrayクラスのインスタンス)です。
+		* この配列にフィルタオブジェクトを登録することにより、再生中にリアルタイムで音声に対して様々な効果をかけることができます。
+		* フィルタ配列への変更が反映されるのは、WaveSoundBuffer.openメソッドが実行された時だけです。
+		* それまでは、この配列への変更を行っても反映はされません。
+		* 
+		* 動作しません
+		*/
+		property filters {
+			getter() { return new Array(); }
+		}
+
+		// デストラクタ
+		function finalize()
+		{
+			this.jsContext.finalize();
+			this.jsContext=null;
+		}
+	};
+}
