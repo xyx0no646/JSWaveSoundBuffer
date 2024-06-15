@@ -9,7 +9,7 @@ Web版の吉里吉里SDL2で音がブツブツ途切れる症状が気になっ�
 ## 使い方
 
 1. ご自身のプロジェクトのdataフォルダにJSWaveSoundBufferの中身をコピーします。
-2. （iOSのブラウザもしくはSafariに対応させる場合のみ）public/ogbjsのフォルダの中身を吉里吉里SDL2のindex.htmlのあるフォルダにコピーします
+2. （iOSのブラウザもしくはSafariに対応させる場合のみ）public/ogvjsのフォルダの中身を吉里吉里SDL2のindex.htmlのあるフォルダにコピーします
 3. ご自身のプロジェクトのstartup.tjsに以下のように記述します。
 
 ```js
