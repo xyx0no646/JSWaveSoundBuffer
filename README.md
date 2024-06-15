@@ -45,7 +45,7 @@ JavaScriptで実装されたWaveSoundBufferです。
 
 author:@xyx0no646
 
-ご自由にお使いください
+「The Unlicense」です。ご自由にお使いください
 
 ### ogv.jsの使用について
 未だに「audio/ogg」を再生できないSafariで動作させるため、ogv.jsを使用しています。<br>
