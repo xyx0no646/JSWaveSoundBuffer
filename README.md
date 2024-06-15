@@ -45,7 +45,8 @@ author:@xyx0no646
 
 ご自由にお使いください
 
-未だに「audio/ogg」を再生できないSafariで動作させるため、ojv.jsを使用しています。
+### ogv.jsの使用について
+未だに「audio/ogg」を再生できないSafariで動作させるため、ogv.jsを使用しています。<br>
 これはMITライセンスに従います。
 
 https://github.com/bvibber/ogv.js
