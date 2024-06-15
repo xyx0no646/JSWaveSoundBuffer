@@ -1,6 +1,6 @@
 # JSWaveSoundBuffer
 
-Audioタグで実装したWaveSoundbuffer
+Audioタグで実装したWaveSoundBuffer
 
 ## これはなに？
 
